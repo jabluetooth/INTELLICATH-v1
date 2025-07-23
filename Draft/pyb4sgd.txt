@@ -1,0 +1,77 @@
+import ssl
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+import pickle
+import math
+
+app = Flask(__name__)
+CORS(app)
+
+model = pickle.load(open('models/model_1.pkl', 'rb'))
+poly = pickle.load(open('models/polynomial_features.pkl', 'rb'))
+scaler = pickle.load(open('models/scaler.pkl', 'rb'))
+
+latest_data = {}
+
+@app.route("/")
+def index():
+    return render_template("index.html") 
+
+@app.route("/predict-post", methods=["POST"])
+def predict():
+    global latest_data
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data received"}), 400
+
+    try:
+        urine_output = data.get("urine_output")
+        urine_flow_rate = data.get("urine_flow_rate")
+        catheter_bag_volume = data.get("catheter_bag_volume")
+        remaining_volume = data.get("remaining_volume")
+
+        if None in [urine_output, urine_flow_rate, catheter_bag_volume, remaining_volume]:
+            return jsonify({"error": "Incomplete data provided"}), 400
+
+        features = [
+            urine_output,
+            urine_flow_rate,
+            catheter_bag_volume,
+            remaining_volume
+        ]
+
+        features_scaled = scaler.transform(poly.transform([features]))
+
+        predicted_time = model.predict(features_scaled)[0]
+
+        hours = math.floor(predicted_time)
+        minutes = round((predicted_time - hours) * 60)
+        if hours >= 24:
+            hours = 0
+        predicted_time = f"{int(hours):02} hours and {int(minutes):02} minutes"
+
+        latest_data = {
+            "urine_output": urine_output,
+            "urine_flow_rate": urine_flow_rate,
+            "catheter_bag_volume": catheter_bag_volume,
+            "remaining_volume": remaining_volume,
+            "predicted_time": predicted_time
+        }
+
+        return jsonify(latest_data)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/predict-get", methods=["GET"])
+def get_latest_data():
+    global latest_data
+    if not latest_data:
+        return jsonify({"error": "No data available yet"}), 404
+    return jsonify(latest_data)
+
+if __name__ == "__main__":
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(certfile="localhost.pem", keyfile="localhost-key.pem")  
+
+    app.run(debug=True, host="0.0.0.0", port=5001, ssl_context=context)

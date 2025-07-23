@@ -1,0 +1,87 @@
+import ssl
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+import pickle
+import math
+
+app = Flask(__name__)
+CORS(app)
+
+# Load the trained model and preprocessors
+model = pickle.load(open('models/model_1.pkl', 'rb'))
+poly = pickle.load(open('models/polynomial_features.pkl', 'rb'))
+scaler = pickle.load(open('models/scaler.pkl', 'rb'))
+
+# Store the latest data for GET requests
+latest_data = {}
+
+@app.route("/")
+def index():
+    # This route will serve the index.html file
+    return render_template("index.html")  # Serve the HTML file from the templates folder
+
+@app.route("/predict-post", methods=["POST"])
+def predict():
+    global latest_data
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data received"}), 400
+
+    try:
+        # Extract features from incoming data
+        urine_output = data.get("urine_output")
+        urine_flow_rate = data.get("urine_flow_rate")
+        catheter_bag_volume = data.get("catheter_bag_volume")
+        remaining_volume = data.get("remaining_volume")
+
+        # Ensure all features are provided
+        if None in [urine_output, urine_flow_rate, catheter_bag_volume, remaining_volume]:
+            return jsonify({"error": "Incomplete data provided"}), 400
+
+        # Prepare features for preprocessing
+        features = [
+            urine_output,
+            urine_flow_rate,
+            catheter_bag_volume,
+            remaining_volume
+        ]
+
+         # Preprocess features (scaling and polynomial transformation)
+        features_scaled = scaler.transform(poly.transform([features]))
+
+        # Predict using the trained model
+        predicted_time = model.predict(features_scaled)[0]
+
+        hours = math.floor(predicted_time)
+        minutes = round((predicted_time - hours) * 60)
+        predicted_time = f"{int(hours):02} hours and {int(minutes):02} minutes"
+
+        # Store the latest data for GET requests
+        latest_data = {
+            "urine_output": urine_output,
+            "urine_flow_rate": urine_flow_rate,
+            "catheter_bag_volume": catheter_bag_volume,
+            "remaining_volume": remaining_volume,
+            "predicted_time": predicted_time
+        }
+
+        # Return the prediction
+        return jsonify(latest_data)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/predict-get", methods=["GET"])
+def get_latest_data():
+    global latest_data
+    if not latest_data:
+        return jsonify({"error": "No data available yet"}), 404
+    return jsonify(latest_data)
+
+if __name__ == "__main__":
+    # SSL context for HTTPS
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(certfile="localhost.pem", keyfile="localhost-key.pem")  # Paths to your certificate and key
+
+    # Run Flask with HTTPS
+    app.run(debug=True, host="0.0.0.0", port=5001, ssl_context=context)

@@ -1,0 +1,67 @@
+RELATED Literature
+CC
+International
+CDC,2023
+WHO,2022
+Local
+Navoa-Ng J. et al, 2013
+DOH,2022
+
+CAUTI
+International
+CDC
+Hong Kong Centre
+Smith et al., 2021
+Local
+Roxas,2016
+
+IoT
+Ordr University
+Wipro, authored by Kargaji and Jindal
+LOCAL
+Gera et al
+Hani, 2021 
+
+Sensor
+Formica and Schena (2021) 
+Patel, Park, and Bonato (2012) 
+LOCAL
+Barbon et al. (2022) 
+
+ML
+Rajkomar, Dean, and Kohane (2019) 
+Habehh & Gohel, 2021
+LOCAL
+American Chamber of Commerce of the Philippines Inc. (AmCham) 
+
+RELATED STUDIES
+CC
+Gupta et al. 2023
+Balu et al. on 2021
+LOCAL
+Calub and Magnaye 2018 
+Opina and Oducado (2018) 
+
+CAUTI
+Park, Bliss, Chi, and Delaney (2020)
+Sufriyana, Chiu, and Sumazin (2024) 
+LOCAL
+Barbon et al. (2022)
+
+IoT 
+Alqahtani,2023
+Rushan Arshad (2017) 
+LOCAL
+Madrid and Cagadas (2023) 
+
+SENSOR
+Sarath Gopalakrishnan et al.
+Sue Foxley (2011) 
+LOCAL
+Cualquiera,2016
+
+ML
+Park et al. (2020) 
+Eun Young Hur et al
+LOCAL
+Manliguez et al. (2024) 

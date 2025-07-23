@@ -1,0 +1,219 @@
+#include <HX711.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <EEPROM.h>
+#include <mbedtls/md.h>  // Required for SHA-256 hashing
+
+// HX711 pins
+#define DT 4
+#define SCK 16
+HX711 scale;
+
+// WiFi Credentials
+const char* ssid = "GlobeAtHome_53B3D_2.4"; 
+const char* password = "75gxYg2f"; 
+
+// Flask Server (HTTPS)
+const char* serverHost = "192.168.254.140";
+const int serverPort = 5001;
+const char* serverURL = "https://192.168.254.140:5001/predict-post";
+
+// Expected SHA-256 Fingerprint (Converted to Byte Array)
+const uint8_t expectedFingerprint[32] = {
+    0xf2, 0xd0, 0x5a, 0xbf, 0x7e, 0xe2, 0xbb, 0x29,
+    0x3f, 0xe6, 0x16, 0x1e, 0x58, 0x60, 0x00, 0x85,
+    0x5f, 0x50, 0x81, 0x6c, 0x07, 0x08, 0xeb, 0x1a,
+    0xb9, 0x12, 0xc8, 0x94, 0xac, 0x18, 0x4b, 0x39
+};
+
+// Load Cell Calibration
+float calibration_factor = 457.5; 
+const int max_catheter_bag_volume = 1000; 
+float offset = 411;
+int catheter_bag_volume = 0; 
+int urine_output = 0;
+int starting_catheter_bag_volume = 0;
+int remaining_volume = 0;
+unsigned long last_update_time = 0;
+unsigned long hour_interval = 3600000;
+
+int eeprom_start_address = 0;
+
+// Time tracking
+unsigned long startTime = 0;
+bool isBagFull = false;
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Initializing load cell...");
+  scale.begin(DT, SCK);
+  scale.set_scale(calibration_factor);
+  Serial.println("Load cell initialized.");
+
+  EEPROM.begin(512);
+  catheter_bag_volume = readEEPROM(eeprom_start_address);
+  urine_output = readEEPROM(eeprom_start_address + 2); 
+  Serial.println("Last catheter bag volume from EEPROM: " + String(catheter_bag_volume));
+  Serial.println("Last urine output from EEPROM: " + String(urine_output));
+
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi is connected.");
+    
+    int current_bag_volume = scale.get_units(10) - offset;
+    if (current_bag_volume < 0) current_bag_volume = 0;
+    Serial.println("Current catheter bag volume: " + String(current_bag_volume));
+
+    catheter_bag_volume = current_bag_volume;
+    remaining_volume = max_catheter_bag_volume - catheter_bag_volume;
+    saveToEEPROM(eeprom_start_address, catheter_bag_volume);
+    saveToEEPROM(eeprom_start_address + 2, urine_output);  
+
+    if (catheter_bag_volume >= max_catheter_bag_volume && !isBagFull) {
+      isBagFull = true;
+      unsigned long actualTime = millis() - startTime;  
+      sendActualTimeToServer(actualTime);
+    }
+
+    if (millis() - last_update_time <= hour_interval) {
+      urine_output = catheter_bag_volume - starting_catheter_bag_volume; 
+      if (urine_output < 0) urine_output = 0;
+    }
+
+    float urine_flow_rate = urine_output / 60.0;
+    if (urine_flow_rate < 0) urine_flow_rate = 0;
+    sendDataToServer(urine_output, urine_flow_rate, catheter_bag_volume, remaining_volume);
+
+    if (millis() - last_update_time >= hour_interval) {
+      urine_output = 0; 
+      starting_catheter_bag_volume = catheter_bag_volume; 
+      last_update_time = millis();
+    }
+
+  } else {
+    Serial.println("WiFi Disconnected. Reconnecting...");
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(1000);
+    }
+    Serial.println("Reconnected to WiFi");
+  }
+
+  delay(1000); 
+}
+
+bool verifyCertificate(WiFiClientSecure &client) {
+    const mbedtls_x509_crt* cert = client.getPeerCertificate();
+    if (!cert) {
+        Serial.println("No certificate received!");
+        return false;
+    }
+
+    uint8_t fingerprint[32];
+    mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), cert->raw.p, cert->raw.len, fingerprint);
+
+    Serial.print("Server SHA-256 Fingerprint: ");
+    for (int i = 0; i < 32; i++) {
+        Serial.printf("%02x", fingerprint[i]);
+    }
+    Serial.println();
+
+    if (memcmp(fingerprint, expectedFingerprint, 32) == 0) {
+        Serial.println("SSL Fingerprint matches!");
+        return true;
+    } else {
+        Serial.println("SSL Fingerprint does NOT match!");
+        return false;
+    }
+}
+
+void sendDataToServer(int urine_output, float urine_flow_rate, int catheter_bag_volume, int remaining_volume) {
+    WiFiClientSecure client;
+    client.setInsecure();  // Disable SSL verification for now
+
+    Serial.println("Connecting to Flask server via HTTPS...");
+    if (!client.connect(serverHost, serverPort)) {
+        Serial.println("Connection to server failed!");
+        return;
+    }
+
+    HTTPClient https;
+    https.begin(client, serverURL);
+    https.addHeader("Content-Type", "application/json");
+
+    String jsonPayload = "{\"urine_output\":" + String(urine_output) + 
+                         ",\"urine_flow_rate\":" + String(urine_flow_rate, 2) + 
+                         ",\"catheter_bag_volume\":" + String(catheter_bag_volume) + 
+                         ",\"remaining_volume\":" + String(remaining_volume) + "}";
+
+    Serial.println("Sending Data: " + jsonPayload);
+
+    int httpResponseCode = https.POST(jsonPayload);
+
+    if (httpResponseCode > 0) {
+        Serial.println("HTTPS Response code: " + String(httpResponseCode));
+        String response = https.getString();
+        Serial.println("Response: " + response);
+    } else {
+        Serial.println("Error sending data: " + String(httpResponseCode));
+    }
+    https.end();
+    client.stop();
+}
+
+void sendActualTimeToServer(unsigned long actualTime) {
+    unsigned long totalMinutes = actualTime / 60000;
+    unsigned long hours = totalMinutes / 60;
+    unsigned long minutes = totalMinutes % 60;
+
+    String formattedTime = String(hours) + ":" + (minutes < 10 ? "0" : "") + String(minutes);
+
+    String jsonPayload = "{\"actual_time\":\"" + formattedTime + "\"}";
+
+    Serial.println("Sending Actual Time Data: " + jsonPayload);
+
+    WiFiClientSecure client;
+    client.setInsecure();  
+
+    if (!client.connect(serverHost, serverPort)) {
+        Serial.println("Connection to server failed!");
+        return;
+    }
+
+    HTTPClient https;
+    https.begin(client, serverURL);
+    https.addHeader("Content-Type", "application/json");
+
+    int httpResponseCode = https.POST(jsonPayload);
+    if (httpResponseCode > 0) {
+        Serial.println("HTTPS Response code: " + String(httpResponseCode));
+        String response = https.getString();
+        Serial.println("Response: " + response);
+    } else {
+        Serial.println("Error sending data: " + String(httpResponseCode));
+    }
+    https.end();
+    client.stop();
+}
+
+void saveToEEPROM(int address, int value) {
+  EEPROM.write(address, (value >> 8) & 0xFF);
+  EEPROM.write(address + 1, value & 0xFF);
+  EEPROM.commit();
+}
+
+int readEEPROM(int address) {
+  int highByte = EEPROM.read(address);
+  int lowByte = EEPROM.read(address + 1);
+  return (highByte << 8) | lowByte;
+}

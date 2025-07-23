@@ -1,0 +1,13 @@
+100, 250, 500, 750, 900ml of water
+10 testing on each known weight. add references for the formulas used such as average percentage error, percentage error, and accuracy.
+
+In this step, the researchers will evaluate the load cell sensor which will be used in
+the INTELLICATH system using the accuracy, percent error, and average percent error as the statistical tool. This will asses the measurement of the load cell sensor and the standard reference volumes. A plastic measuring jug with a capacity of 1000 will be used as the standard reference with volumes of 100mL, 200mL, 500mL, 750mL, and 900mL and 10 trials will be done on each volume in order to evaluate the sensor. 
+The standard weight of each volume will be weighed using a calibrated weighing scale.
+average percentage error=(sum of all percentage)/(number of percentage) x100
+
+	The average percent error gives the assessment of the load cell sensor’s performance on all of its repeated testing. Calculating it summarized the accuracy of the sensor on multiple testing.
+percentage error=(load cell sensor measurement-actual measurement )/(actual measurement) x100
+
+	The percentage error measures the accuracy of a single measurement which is often used to calculate the reliability of the instruments which is used in the field of engineering. (Taylor, 1997). Lower percentage error means that the measurement is more accurate.
+Accuracy=100%-percent error

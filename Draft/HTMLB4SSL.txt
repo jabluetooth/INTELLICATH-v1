@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intellicath</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            background-color: #007BFF;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>INTELLICATH</h1>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Urine Output</th>
+                <th>Urine Flow Rate</th>
+                <th>Catheter Bag Volume</th>
+                <th>Remaining Volume</th>
+                <th>Time until full</th>
+            </tr>
+        </thead>
+        <tbody id="monitoringData">
+            <!-- Data rows will be dynamically inserted here -->
+        </tbody>
+    </table>
+
+    <script>
+        // Automatically request notification permission on page load
+        if (Notification.permission !== "granted") {
+            Notification.requestPermission().then(permission => {
+                if (permission === "granted") {
+                    console.log("Notification permission granted!");
+                } else {
+                    console.log("Notification permission denied.");
+                }
+            });
+        }
+
+        async function fetchMonitoringData() {
+            const tableBody = document.getElementById('monitoringData');
+            try {
+                // Fetch the latest data from the Flask server
+                const response = await fetch('http://127.0.0.1:5001/predict-get', {
+                    method: 'GET',
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch data: ${response.statusText}`);
+                }
+
+                // Parse the response JSON
+                const data = await response.json();
+
+                // Validate response data
+                if (
+                    data.urine_output === undefined ||
+                    data.urine_flow_rate === undefined ||
+                    data.catheter_bag_volume === undefined ||
+                    data.remaining_volume === undefined ||
+                    data.predicted_time === undefined
+                ) {
+                    throw new Error('Incomplete data received from server');
+                }
+
+                // Update the table dynamically with "ml" included
+                tableBody.innerHTML = `
+                    <tr>
+                        <td>${data.urine_output} cc</td>
+                        <td>${data.urine_flow_rate} cc/min</td>
+                        <td>${data.catheter_bag_volume} ml</td>
+                        <td>${data.remaining_volume} ml</td>
+                        <td>${data.predicted_time || 'N/A'}</td>
+                    </tr>
+                `;
+
+                // Display a notification with all the data
+                if (Notification.permission === "granted") {
+                    new Notification("New Data Received", {
+                        body: `
+                            Urine Output: ${data.urine_output} cc
+                            Urine Flow Rate: ${data.urine_flow_rate} cc/min
+                            Catheter Bag Volume: ${data.catheter_bag_volume} ml
+                            Remaining Volume: ${data.remaining_volume} ml
+                            Predicted Time: ${data.predicted_time || 'N/A'}
+                        `,
+                    });
+                } else {
+                    console.log("Notification permission not granted.");
+                }
+
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                tableBody.innerHTML = `<tr><td colspan="5">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        // Fetch data every 5 seconds
+        setInterval(fetchMonitoringData, 5000);
+        fetchMonitoringData(); // Initial fetch
+    </script>
+</body>
+</html>
