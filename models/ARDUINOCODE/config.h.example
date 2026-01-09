@@ -1,0 +1,14 @@
+// WiFi Configuration
+// Replace these values with your actual WiFi credentials
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// Server Configuration
+// For Vercel deployment: "https://your-project-name.vercel.app/api/predict"
+// For local development: "https://192.168.1.100:5001/predict-post"
+const char* serverURL = "https://YOUR_VERCEL_URL/api/predict";
+
+// Hardware Calibration (optional - adjust if needed)
+// Uncomment and modify if you need different calibration values
+// float calibration_factor = 458;
+// float offset = 411;

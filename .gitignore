@@ -1,0 +1,91 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Firebase
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+
+# SSL Certificates & Keys
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing & Archive
+TESTING/
+Draft/
+_archive/
+
+# Machine Learning Models (keep only active ones)
+models/*.pkl
+!models/decision_tree.pkl
+!models/scaler.pkl
+
+# Data Files (keep small samples only)
+*.csv
+*.xlsx
+!*sample*.csv
+!*sample*.xlsx
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Vercel
+.vercel
+
+# Arduino Configuration (contains WiFi credentials)
+models/ARDUINOCODE/config.h
+
+.CLAUDE.md
+

@@ -2,17 +2,14 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <EEPROM.h>
+#include "config.h" 
 
 #define FLOW_RATE_DELAY_MS 60000  
 #define DT 4
 #define SCK 16
 #define NOISE_THRESHOLD 2 
 
-HX711 scale;
-
-const char* ssid = "Pldt"; 
-const char* password = "Ladoysot567890!";
-const char* serverURL = "https://192.168.1.4:5001/predict-post";  
+HX711 scale;  
 
 unsigned long lastFlowRateCalculationTime = 0; 
 float calibration_factor = 458;

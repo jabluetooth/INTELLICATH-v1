@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(del \"E:\\\\Projects\\\\intellicath\\\\Procfile\")",
+      "Bash(python test_firebase.py:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:daisyui.com)",
+      "mcp__ide__getDiagnostics",
+      "Bash(copy:*)",
+      "Bash(git reset:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

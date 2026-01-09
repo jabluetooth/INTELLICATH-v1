@@ -1,46 +1,58 @@
 import ssl
-import pickle
-import pymysql
+import os
+import json
+import logging
 import numpy as np
-import math
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import pandas as pd
-from datetime import datetime
-import os
 import joblib
-import numpy as np
 from datetime import datetime
+from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, firestore
 
+# Load environment variables
+load_dotenv()
 
-app = Flask(__name__)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__, template_folder='public', static_folder='public', static_url_path='')
 CORS(app)
 
-MAX_PREDICTION_TIME = int(os.getenv("MAX_PREDICTION_TIME", 12 * 60)) 
+# Initialize Firebase Admin SDK
+def get_firestore_client():
+    """Initialize and return Firestore client."""
+    if not firebase_admin._apps:
+        # Check for service account JSON in environment variable
+        firebase_creds = os.getenv("FIREBASE_SERVICE_ACCOUNT")
+        if firebase_creds:
+            cred_dict = json.loads(firebase_creds)
+            cred = credentials.Certificate(cred_dict)
+        else:
+            # Fallback to file-based credentials for local development
+            cred_path = "serviceAccountKey.json"
+            if os.path.exists(cred_path):
+                cred = credentials.Certificate(cred_path)
+            else:
+                raise ValueError("Firebase credentials not found. Set FIREBASE_SERVICE_ACCOUNT env var or provide serviceAccountKey.json")
 
-DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "",
-    "database": "intellicath",
-    "cursorclass": pymysql.cursors.DictCursor
-}
+        firebase_admin.initialize_app(cred)
 
-def get_db_connection():
-    """Establish a MySQL database connection."""
-    try:
-        return pymysql.connect(**DB_CONFIG) 
-    except pymysql.MySQLError as e:
-        print(f"[ERROR] Database Connection Failed: {e}")
-        return None
+    return firestore.client()
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
 @app.route("/predict-post", methods=["POST"])
+@app.route("/api/predict", methods=["POST"])
 def predict():
-    """Receives data, processes it, and stores predictions in MySQL."""
+    """Receives data, processes it, and stores predictions in Firestore."""
     data = request.get_json()
 
     if not data:
@@ -58,113 +70,112 @@ def predict():
         features = np.array([[remaining_volume, urine_flow_rate]])
 
         model = joblib.load("models/decision_tree.pkl")
-        scaler = joblib.load("models/scaler.pkl")  
+        scaler = joblib.load("models/scaler.pkl")
 
         scaled_features = scaler.transform(features)
         predicted_time_minutes = model.predict(scaled_features)[0]
         hours = int(predicted_time_minutes // 60)
         minutes = int(predicted_time_minutes % 60)
         predicted_time = f"{hours:02} hours and {minutes:02} minutes"
-        print(f"Predicted Time (HH:MM): {predicted_time}")
+        logger.info(f"Predicted Time: {predicted_time}")
 
-        save_data_to_db({
+        save_data_to_firestore({
             "urine_output": urine_output,
             "urine_flow_rate": urine_flow_rate,
             "catheter_bag_volume": catheter_bag_volume,
             "remaining_volume": remaining_volume,
-            "predicted_time": predicted_time, 
+            "predicted_time": predicted_time,
             "actual_time": actual_time
         })
 
         return jsonify({
             "status": "success",
-            "predicted_time": predicted_time,  
+            "predicted_time": predicted_time,
             "actual_time": actual_time
         })
 
     except Exception as e:
-        print(f"[ERROR] Prediction Error: {e}")
+        logger.error(f"Prediction Error: {e}")
         return jsonify({"error": str(e)}), 500
 
-    
-def save_data_to_db(data):
-    """Saves the latest data to MySQL if there is a change in values greater than 2ml."""
+@app.route("/api/data", methods=["GET"])
+def get_data():
+    """Fetch the latest data from Firestore."""
     try:
-        connection = get_db_connection()
-        if connection is None:
-            return
+        db = get_firestore_client()
+        collection = db.collection("intellicath_data")
 
-        with connection.cursor() as cursor:
-            last_query = "SELECT * FROM intellicath_data ORDER BY id DESC LIMIT 1"
-            cursor.execute(last_query)
-            last_entry = cursor.fetchone()
+        # Get the most recent document
+        docs = collection.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(1).stream()
 
-            if last_entry:
-                if abs(last_entry["urine_output"] - data["urine_output"]) <= 2 and \
-                   abs(last_entry["urine_flow_rate"] - data["urine_flow_rate"]) <= 0.1 and \
-                   abs(last_entry["catheter_bag_volume"] - data["catheter_bag_volume"]) <= 2:
-                    print("[INFO] No significant change in data. Skipping insert.")
-                    return
+        for doc in docs:
+            data = doc.to_dict()
+            # Convert timestamp to string if present
+            if data.get("timestamp"):
+                data["timestamp"] = str(data["timestamp"])
+            data["id"] = doc.id
+            return jsonify(data)
 
-            sql = """
-            INSERT INTO intellicath_data (urine_output, urine_flow_rate, catheter_bag_volume, remaining_volume, predicted_time, actual_time)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(sql, (
-                data["urine_output"], 
-                data["urine_flow_rate"], 
-                data["catheter_bag_volume"], 
-                data["remaining_volume"], 
-                data["predicted_time"],
-                data["actual_time"]  
-            ))
-            connection.commit()
-            print("Data inserted into database successfully.")
+        return jsonify({"status": "no_data", "message": "No data available"})
 
-        connection.close()
+    except Exception as e:
+        logger.error(f"Data Fetch Error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
 
-    except pymysql.MySQLError as e:
-        print(f"[ERROR] MySQL Insert Failed: {e}")
 
-def get_actual_time_from_db():
-    """Retrieve the first recorded timestamp when the bag reached 800ml."""
-    connection = get_db_connection()
-    if connection is None:
-        return None
+def save_data_to_firestore(data):
+    """Saves the latest data to Firestore if there is a significant change."""
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                SELECT actual_time FROM intellicath_data
-                WHERE catheter_bag_volume >= 800
-                ORDER BY actual_time ASC LIMIT 1
-            """)
-            result = cursor.fetchone()
-            return result["actual_time"] if result else None
-    except pymysql.MySQLError as e:
-        print(f"[ERROR] Failed to fetch actual_time: {e}")
-        return None
-    finally:
-        connection.close()
+        db = get_firestore_client()
+        collection = db.collection("intellicath_data")
 
-def store_actual_time_in_db(timestamp):
-    """Store the first timestamp when the bag reaches 800ml."""
-    connection = get_db_connection()
-    if connection is None:
-        return
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO intellicath_data (catheter_bag_volume, actual_time)
-                VALUES (%s, %s)
-            """, (800, timestamp))
-            connection.commit()
-            print("First recorded time when bag reached 800ml:", timestamp)
-    except pymysql.MySQLError as e:
-        print(f"[ERROR] Failed to store actual_time: {e}")
-    finally:
-        connection.close()
+        # Get the last entry
+        last_docs = collection.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(1).stream()
+        last_entry = None
+        for doc in last_docs:
+            last_entry = doc.to_dict()
+            break
+
+        if last_entry:
+            # Check if there's a significant change
+            if abs(last_entry.get("urine_output", 0) - data["urine_output"]) <= 2 and \
+               abs(last_entry.get("urine_flow_rate", 0) - data["urine_flow_rate"]) <= 0.1 and \
+               abs(last_entry.get("catheter_bag_volume", 0) - data["catheter_bag_volume"]) <= 2:
+                logger.debug("No significant change in data. Skipping insert.")
+                return True
+
+        # Add timestamp
+        data["timestamp"] = firestore.SERVER_TIMESTAMP
+
+        # Add new document
+        collection.add(data)
+        logger.info("Data inserted into Firestore successfully.")
+        return True
+
+    except Exception as e:
+        logger.error(f"Firestore Insert Failed: {e}")
+        return False
 
 if __name__ == "__main__":
-    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    context.load_cert_chain(certfile="localhost.pem", keyfile="localhost-key.pem")
-    app.run(debug=True, host="0.0.0.0", port=5001, ssl_context=context)
+    # SSL configuration from environment
+    ssl_cert = os.getenv("SSL_CERT_PATH", "localhost.pem")
+    ssl_key = os.getenv("SSL_KEY_PATH", "localhost-key.pem")
+
+    # Check if SSL certificates exist
+    if os.path.exists(ssl_cert) and os.path.exists(ssl_key):
+        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        context.load_cert_chain(certfile=ssl_cert, keyfile=ssl_key)
+        logger.info(f"Starting Flask app with SSL on port {os.getenv('FLASK_PORT', 5001)}")
+        app.run(
+            debug=os.getenv("FLASK_DEBUG", "True") == "True",
+            host=os.getenv("FLASK_HOST", "0.0.0.0"),
+            port=int(os.getenv("FLASK_PORT", 5001)),
+            ssl_context=context
+        )
+    else:
+        logger.warning(f"SSL certificates not found. Starting without SSL.")
+        app.run(
+            debug=os.getenv("FLASK_DEBUG", "True") == "True",
+            host=os.getenv("FLASK_HOST", "0.0.0.0"),
+            port=int(os.getenv("FLASK_PORT", 5001))
+        )
