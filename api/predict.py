@@ -5,8 +5,8 @@ import numpy as np
 import joblib
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
-import firebase_admin
-from firebase_admin import credentials, firestore
+from google.cloud import firestore
+from google.oauth2 import service_account
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,26 +15,26 @@ logger = logging.getLogger(__name__)
 # Get the directory where this file is located
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Initialize Firebase Admin SDK
+# Firestore client singleton
+_firestore_client = None
+
 def get_firestore_client():
     """Initialize and return Firestore client."""
-    if not firebase_admin._apps:
-        # Check for service account JSON in environment variable
+    global _firestore_client
+    if _firestore_client is None:
         firebase_creds = os.getenv("FIREBASE_SERVICE_ACCOUNT")
         if firebase_creds:
             cred_dict = json.loads(firebase_creds)
-            cred = credentials.Certificate(cred_dict)
+            credentials_obj = service_account.Credentials.from_service_account_info(cred_dict)
+            _firestore_client = firestore.Client(credentials=credentials_obj, project=cred_dict.get("project_id"))
         else:
             # Fallback to file-based credentials for local development
             cred_path = os.path.join(BASE_DIR, "serviceAccountKey.json")
             if os.path.exists(cred_path):
-                cred = credentials.Certificate(cred_path)
+                _firestore_client = firestore.Client.from_service_account_json(cred_path)
             else:
                 raise ValueError("Firebase credentials not found. Set FIREBASE_SERVICE_ACCOUNT env var or provide serviceAccountKey.json")
-
-        firebase_admin.initialize_app(cred)
-
-    return firestore.client()
+    return _firestore_client
 
 def save_data_to_firestore(data):
     """Saves the latest data to Firestore if there is a significant change."""
@@ -61,7 +61,7 @@ def save_data_to_firestore(data):
         data["timestamp"] = firestore.SERVER_TIMESTAMP
 
         # Add new document
-        collection.add(data)
+        collection.document().set(data)
         logger.info("Data inserted into Firestore successfully.")
         return True
 

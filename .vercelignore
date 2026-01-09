@@ -1,0 +1,8 @@
+_archive/
+Draft/
+TESTING/
+*.md
+.git/
+.claude/
+serviceAccountKey.json
+app.py

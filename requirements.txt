@@ -1,4 +1,4 @@
 numpy
 scikit-learn
 joblib
-firebase-admin
+google-cloud-firestore
