@@ -87,5 +87,13 @@ Thumbs.db
 # Arduino Configuration (contains WiFi credentials)
 models/ARDUINOCODE/config.h
 
-.CLAUDE.md
+CLAUDE.md
 
+.claude/
+
+# Temp files
+nul
+tmpclaude-*
+
+# Duplicate folder
+INTELLICATH/
