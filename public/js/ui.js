@@ -28,19 +28,14 @@ const UI = {
 
             // Status
             statusCard: document.getElementById('statusCard'),
-            statusAvatar: document.getElementById('statusAvatar'),
+            statusIcon: document.getElementById('statusIcon'),
             statusText: document.getElementById('statusText'),
             statusMessage: document.getElementById('statusMessage'),
-
-            // Alert
-            alertBanner: document.getElementById('alertBanner'),
-            alertTitle: document.getElementById('alertTitle'),
-            alertMessage: document.getElementById('alertMessage'),
+            statusMessageIcon: document.getElementById('statusMessageIcon'),
 
             // Other
             connectionBadge: document.getElementById('connectionBadge'),
-            errorState: document.getElementById('errorState'),
-            errorMessage: document.getElementById('errorMessage')
+            connectionText: document.getElementById('connectionText')
         };
     },
 
@@ -53,7 +48,6 @@ const UI = {
         this.updateCapacity(data);
         this.updateStatus(data);
         this.updateTimestamp();
-        this.hideError();
     },
 
     /**
@@ -65,6 +59,7 @@ const UI = {
         this.animateValue(this.elements.flowRate, this.previousValues.flowRate, data.urine_flow_rate?.toFixed(2) ?? '0.00');
         this.animateValue(this.elements.bagVolume, this.previousValues.bagVolume, data.catheter_bag_volume ?? 0);
         this.animateValue(this.elements.remainingVolume, this.previousValues.remainingVolume, data.remaining_volume ?? 0);
+
         // Update predicted time and remove calculating animation when data arrives
         if (data.predicted_time) {
             this.elements.predictedTime.textContent = data.predicted_time;
@@ -94,10 +89,11 @@ const UI = {
 
         // Add animation if value changed
         if (oldValue !== undefined && oldValue != newValue) {
-            element.classList.add('animate-count', 'animate-highlight');
+            element.style.transform = 'scale(1.1)';
+            element.style.transition = 'transform 0.3s ease';
             setTimeout(() => {
-                element.classList.remove('animate-count', 'animate-highlight');
-            }, 1000);
+                element.style.transform = 'scale(1)';
+            }, 300);
         }
     },
 
@@ -109,11 +105,11 @@ const UI = {
         const currentVolume = data.catheter_bag_volume || 0;
         const percent = Math.min((currentVolume / CONFIG.BAG.MAX_CAPACITY) * 100, 100);
 
-        // Update values
-        this.elements.capacityProgress.value = percent;
+        // Update progress bar width
+        this.elements.capacityProgress.style.width = `${percent}%`;
         this.elements.capacityBadge.textContent = `${Math.round(percent)}%`;
 
-        // Update colors
+        // Update colors based on percentage
         this.updateCapacityColors(percent);
     },
 
@@ -123,23 +119,15 @@ const UI = {
      */
     updateCapacityColors(percent) {
         const progressBar = this.elements.capacityProgress;
-        const badge = this.elements.capacityBadge;
 
-        // Remove existing color classes
-        progressBar.classList.remove('progress-primary', 'progress-warning', 'progress-error');
-        badge.classList.remove('badge-primary', 'badge-warning', 'badge-error');
-
-        // Apply appropriate color
         if (percent >= CONFIG.BAG.CRITICAL_PERCENT) {
-            progressBar.classList.add('progress-error');
-            badge.classList.add('badge-error');
+            progressBar.style.background = 'linear-gradient(90deg, #7f1d1d 0%, #dc2626 50%, #7f1d1d 100%)';
         } else if (percent >= CONFIG.BAG.WARNING_PERCENT) {
-            progressBar.classList.add('progress-warning');
-            badge.classList.add('badge-warning');
+            progressBar.style.background = 'linear-gradient(90deg, #78350f 0%, #f59e0b 50%, #78350f 100%)';
         } else {
-            progressBar.classList.add('progress-primary');
-            badge.classList.add('badge-primary');
+            progressBar.style.background = 'linear-gradient(90deg, #333333 0%, #4a4a4a 50%, #333333 100%)';
         }
+        progressBar.style.backgroundSize = '200% 100%';
     },
 
     /**
@@ -172,50 +160,38 @@ const UI = {
     applyStatus(status) {
         const statusConfig = {
             [CONFIG.STATUS.CRITICAL]: {
-                cardClass: 'card bg-error/10 shadow-xl border border-error/30 animate-glow-error',
-                avatarClass: 'bg-error text-error-content animate-bounce-soft',
+                cardClass: 'glow-card info-card status-error',
                 icon: 'fa-exclamation-circle',
                 text: 'CRITICAL',
-                textClass: 'text-2xl font-bold text-error',
                 message: 'Bag is full! Empty immediately!',
                 messageIcon: 'fa-exclamation-triangle',
-                messageClass: 'flex items-center gap-2 text-sm text-error',
-                showAlert: true,
-                alertTitle: 'Critical Alert!',
-                alertMessage: 'Catheter bag is full. Empty immediately to prevent complications.'
+                showToast: true,
+                toastTitle: 'Critical Alert!',
+                toastMessage: 'Catheter bag is full. Empty immediately.'
             },
             [CONFIG.STATUS.WARNING]: {
-                cardClass: 'card bg-warning/10 shadow-xl border border-warning/30 animate-glow-warning',
-                avatarClass: 'bg-warning text-warning-content',
+                cardClass: 'glow-card info-card status-warning',
                 icon: 'fa-exclamation-triangle',
                 text: 'Warning',
-                textClass: 'text-2xl font-bold text-warning',
                 message: 'Bag nearing capacity. Plan to empty soon.',
                 messageIcon: 'fa-clock',
-                messageClass: 'flex items-center gap-2 text-sm text-warning',
-                showAlert: false
+                showToast: false
             },
             [CONFIG.STATUS.ATTENTION]: {
-                cardClass: 'card bg-info/10 shadow-xl border border-info/30',
-                avatarClass: 'bg-info text-info-content',
+                cardClass: 'glow-card info-card',
                 icon: 'fa-pause-circle',
                 text: 'Attention',
-                textClass: 'text-2xl font-bold text-info',
                 message: 'No urine output detected. Check for blockages.',
                 messageIcon: 'fa-info-circle',
-                messageClass: 'flex items-center gap-2 text-sm text-info',
-                showAlert: false
+                showToast: false
             },
             [CONFIG.STATUS.NORMAL]: {
-                cardClass: 'card bg-success/10 shadow-xl border border-success/30',
-                avatarClass: 'bg-success text-success-content',
+                cardClass: 'glow-card info-card status-normal',
                 icon: 'fa-check-circle',
                 text: 'Normal',
-                textClass: 'text-2xl font-bold text-success',
                 message: 'All parameters within normal range',
                 messageIcon: 'fa-shield-alt',
-                messageClass: 'flex items-center gap-2 text-sm text-success',
-                showAlert: false
+                showToast: false
             }
         };
 
@@ -223,48 +199,21 @@ const UI = {
 
         // Apply status card styling
         this.elements.statusCard.className = config.cardClass;
-        this.elements.statusAvatar.innerHTML = `
-            <div class="${config.avatarClass} w-16 rounded-xl flex items-center justify-center">
-                <i class="fas ${config.icon} text-2xl"></i>
-            </div>
-        `;
+        this.elements.statusIcon.className = `fas ${config.icon}`;
         this.elements.statusText.textContent = config.text;
-        this.elements.statusText.className = config.textClass;
-        this.elements.statusMessage.innerHTML = `
-            <i class="fas ${config.messageIcon} mr-2"></i>${config.message}
-        `;
-        this.elements.statusMessage.className = config.messageClass;
+        this.elements.statusMessage.textContent = config.message;
+        this.elements.statusMessageIcon.className = `fas ${config.messageIcon}`;
 
-        // Handle alert banner
-        if (config.showAlert) {
-            this.showAlert(config.alertTitle, config.alertMessage);
+        // Show toast for critical status
+        if (config.showToast && window.showWarning) {
+            // Only show once per critical state
+            if (!this._criticalToastShown) {
+                window.showError(config.toastTitle, config.toastMessage);
+                this._criticalToastShown = true;
+            }
         } else {
-            this.hideAlert();
+            this._criticalToastShown = false;
         }
-    },
-
-    /**
-     * Show alert banner with animation
-     * @param {string} title - Alert title
-     * @param {string} message - Alert message
-     */
-    showAlert(title, message) {
-        this.elements.alertTitle.textContent = title;
-        this.elements.alertMessage.textContent = message;
-        this.elements.alertBanner.classList.remove('hidden');
-
-        // Add shake animation
-        this.elements.alertBanner.classList.add('animate-shake');
-        setTimeout(() => {
-            this.elements.alertBanner.classList.remove('animate-shake');
-        }, 500);
-    },
-
-    /**
-     * Hide alert banner
-     */
-    hideAlert() {
-        this.elements.alertBanner.classList.add('hidden');
     },
 
     /**
@@ -275,19 +224,20 @@ const UI = {
     },
 
     /**
-     * Show error state
+     * Show error state using toast notification
      * @param {string} message - Error message
      */
     showError(message) {
-        this.elements.errorMessage.textContent = message;
-        this.elements.errorState.classList.remove('hidden');
+        if (window.showError) {
+            window.showError('Unable to fetch data', message);
+        }
     },
 
     /**
-     * Hide error state
+     * Hide error state (no-op since we use toasts now)
      */
     hideError() {
-        this.elements.errorState.classList.add('hidden');
+        // No-op - toasts auto-dismiss
     },
 
     /**
@@ -295,53 +245,45 @@ const UI = {
      * @param {string} status - Connection status: 'waiting', 'live', 'offline', 'no_device'
      */
     setConnectionStatus(status) {
+        const badge = this.elements.connectionBadge;
+
         const statusConfig = {
             waiting: {
-                class: 'badge bg-gray-400 text-white border-none gap-1',
-                icon: 'fa-plug',
+                class: 'status-indicator',
                 text: 'Waiting',
-                animate: false
+                showPing: false
             },
             live: {
-                class: 'badge bg-green-600 text-white border-none gap-1',
-                icon: 'loading',
+                class: 'status-indicator live',
                 text: 'Live',
-                animate: true
+                showPing: true
             },
             offline: {
-                class: 'badge bg-red-500 text-white border-none gap-1',
-                icon: 'fa-times-circle',
+                class: 'status-indicator offline',
                 text: 'Offline',
-                animate: false
+                showPing: false
             },
             no_device: {
-                class: 'badge bg-orange-400 text-white border-none gap-1',
-                icon: 'fa-unlink',
+                class: 'status-indicator warning',
                 text: 'No Device',
-                animate: false
+                showPing: false
             },
             no_data: {
-                class: 'badge bg-yellow-500 text-white border-none gap-1',
-                icon: 'fa-database',
+                class: 'status-indicator warning',
                 text: 'No Data',
-                animate: false
+                showPing: false
             }
         };
 
         const config = statusConfig[status] || statusConfig.waiting;
 
-        this.elements.connectionBadge.className = config.class;
-
-        if (config.animate) {
-            this.elements.connectionBadge.innerHTML = `
-                <span class="loading loading-ring loading-xs"></span>
-                <span>${config.text}</span>
-            `;
-        } else {
-            this.elements.connectionBadge.innerHTML = `
-                <i class="fas ${config.icon}"></i>
-                <span>${config.text}</span>
-            `;
-        }
+        badge.className = config.class;
+        badge.innerHTML = `
+            <div class="status-dot-container">
+                <div class="status-dot ${config.showPing ? 'ping' : ''}"></div>
+                <div class="status-dot"></div>
+            </div>
+            <span>${config.text}</span>
+        `;
     }
 };
