@@ -264,3 +264,7 @@ Contributions are welcome! Please ensure:
 
 ## LICENSE
 [Add your license information here]
+
+---
+
+*Last updated: April 25, 2026*
