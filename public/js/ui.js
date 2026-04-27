@@ -1,289 +1,177 @@
-/**
- * INTELLICATH - UI Module
- * Handles all UI updates and DOM manipulation
- */
-
 const UI = {
-    // DOM element references (cached for performance)
     elements: {},
-
-    // Previous values for change detection
     previousValues: {},
 
-    /**
-     * Initialize UI by caching DOM elements
-     */
     init() {
         this.elements = {
-            // Stats
-            urineOutput: document.getElementById('urineOutput'),
-            flowRate: document.getElementById('flowRate'),
-            bagVolume: document.getElementById('bagVolume'),
-            remainingVolume: document.getElementById('remainingVolume'),
-            predictedTime: document.getElementById('predictedTime'),
-
-            // Capacity
-            capacityProgress: document.getElementById('capacityProgress'),
-            capacityBadge: document.getElementById('capacityBadge'),
-
-            // Status
-            statusCard: document.getElementById('statusCard'),
-            statusIcon: document.getElementById('statusIcon'),
-            statusText: document.getElementById('statusText'),
-            statusMessage: document.getElementById('statusMessage'),
-            statusMessageIcon: document.getElementById('statusMessageIcon'),
-
-            // Other
-            connectionBadge: document.getElementById('connectionBadge'),
-            connectionText: document.getElementById('connectionText')
+            timeValue:        document.getElementById('timeValue'),
+            timeUnit:         document.getElementById('timeUnit'),
+            pctText:          document.getElementById('pctText'),
+            barFill:          document.getElementById('barFill'),
+            statusMsg:        document.getElementById('statusMsg'),
+            volVal:           document.getElementById('volVal'),
+            remVal:           document.getElementById('remVal'),
+            statusVal:        document.getElementById('statusVal'),
+            statusSub:        document.getElementById('statusSub'),
+            urineOut:         document.getElementById('urineOut'),
+            flowRate:         document.getElementById('flowRate'),
+            catheterStatus:   document.getElementById('catheterStatus'),
+            catheterStatusSub:document.getElementById('catheterStatusSub'),
+            signalQuality:    document.getElementById('signalQuality'),
+            signalQualitySub: document.getElementById('signalQualitySub'),
+            timestamp:        document.getElementById('timestamp'),
+            footerTs:         document.getElementById('footerTs'),
+            deviceBadge:      document.getElementById('deviceBadge'),
+            deviceDot:        document.getElementById('deviceDot'),
+            deviceLabel:      document.getElementById('deviceLabel'),
         };
+
+        // Clock tick every second
+        setInterval(() => this._tick(), 1000);
     },
 
-    /**
-     * Update all UI elements with new data
-     * @param {Object} data - Monitoring data
-     */
     update(data) {
-        this.updateStats(data);
-        this.updateCapacity(data);
-        this.updateStatus(data);
-        this.updateTimestamp();
+        this._updateReadout(data);
+        this._updateGrid(data);
+        this._updateTimestamp();
     },
 
-    /**
-     * Update stat cards with animation
-     * @param {Object} data - Monitoring data
-     */
-    updateStats(data) {
-        this.animateValue(this.elements.urineOutput, this.previousValues.urineOutput, data.urine_output ?? 0);
-        this.animateValue(this.elements.flowRate, this.previousValues.flowRate, data.urine_flow_rate?.toFixed(2) ?? '0.00');
-        this.animateValue(this.elements.bagVolume, this.previousValues.bagVolume, data.catheter_bag_volume ?? 0);
-        this.animateValue(this.elements.remainingVolume, this.previousValues.remainingVolume, data.remaining_volume ?? 0);
-
-        // Update predicted time and remove calculating animation when data arrives
-        if (data.predicted_time) {
-            this.elements.predictedTime.textContent = data.predicted_time;
-            this.elements.predictedTime.classList.remove('calculating');
-        } else {
-            this.elements.predictedTime.textContent = 'Calculating';
-            this.elements.predictedTime.classList.add('calculating');
-        }
-
-        // Store previous values
-        this.previousValues = {
-            urineOutput: data.urine_output,
-            flowRate: data.urine_flow_rate?.toFixed(2),
-            bagVolume: data.catheter_bag_volume,
-            remainingVolume: data.remaining_volume
+    _getStatusConfig(pct, flowRate, urineOutput) {
+        if (pct >= 87.5) return {
+            cls: 'crit', bar: 'crit',
+            status: 'Critical', color: 'var(--crit)', sub: 'Empty immediately',
+            msg: 'URGENT — Bag approaching maximum capacity. Empty immediately.',
+            catheter: 'CHECK', catheterSub: 'Bag near full',
+        };
+        if (pct >= 75) return {
+            cls: 'warn', bar: 'warn',
+            status: 'Caution', color: 'var(--warn)', sub: 'Plan to empty soon',
+            msg: 'Bag nearing capacity. Plan to empty within the next 4 hours.',
+            catheter: 'OK', catheterSub: 'Elevated volume',
+        };
+        if ((flowRate === 0 || flowRate === null) && (urineOutput === 0 || urineOutput === null)) return {
+            cls: '', bar: '',
+            status: 'Attention', color: 'var(--warn)', sub: 'Check for blockage',
+            msg: 'No urine output detected. Check catheter for blockages.',
+            catheter: 'CHECK', catheterSub: 'No flow detected',
+        };
+        return {
+            cls: '', bar: '',
+            status: 'Good', color: 'var(--accent)', sub: 'All nominal',
+            msg: 'Catheter bag at normal capacity. Next check recommended in 6 hours.',
+            catheter: 'OK', catheterSub: 'Normal function',
         };
     },
 
-    /**
-     * Animate value change
-     * @param {HTMLElement} element - DOM element to update
-     * @param {any} oldValue - Previous value
-     * @param {any} newValue - New value
-     */
-    animateValue(element, oldValue, newValue) {
-        element.textContent = newValue;
+    _parsePredictedTime(str) {
+        if (!str) return { big: '—', unit: 'calculating…' };
+        const m = str.match(/(\d+)\s+hours?\s+and\s+(\d+)\s+minutes?/i);
+        if (!m) return { big: str, unit: 'estimated' };
+        const h = parseInt(m[1]), min = parseInt(m[2]);
+        const unit = min > 0 ? `${h}h ${min}m until full` : `${h}h until full`;
+        return { big: h.toString(), unit };
+    },
 
-        // Add animation if value changed
-        if (oldValue !== undefined && oldValue != newValue) {
-            element.style.transform = 'scale(1.1)';
-            element.style.transition = 'transform 0.3s ease';
-            setTimeout(() => {
-                element.style.transform = 'scale(1)';
-            }, 300);
+    _updateReadout(data) {
+        const vol  = data.catheter_bag_volume ?? 0;
+        const rem  = data.remaining_volume ?? 0;
+        const flow = data.urine_flow_rate ?? 0;
+        const uout = data.urine_output ?? 0;
+        const pct  = Math.min((vol / 800) * 100, 100);
+        const s    = this._getStatusConfig(pct, flow, uout);
+        const pt   = this._parsePredictedTime(data.predicted_time);
+
+        // Big time display
+        this.elements.timeValue.textContent = pt.big;
+        this.elements.timeValue.className   = 'readout-number ' + s.cls;
+        this.elements.timeUnit.textContent  = pt.unit;
+
+        // Capacity bar
+        this.elements.barFill.style.width  = Math.round(pct) + '%';
+        this.elements.barFill.className    = 'bar-fill ' + s.bar;
+        this.elements.pctText.textContent  = Math.round(pct) + '%';
+
+        // Status message
+        this.elements.statusMsg.textContent = s.msg;
+
+        // Right panel stats
+        this.elements.volVal.textContent = Math.round(vol);
+        this.elements.remVal.textContent = Math.round(rem);
+
+        const sv = this.elements.statusVal;
+        sv.textContent   = s.status;
+        sv.style.color   = s.color;
+        this.elements.statusSub.textContent = s.sub;
+
+        // Show toast for critical (debounced via flag)
+        if (s.cls === 'crit' && !this._critShown) {
+            this._critShown = true;
+            if (window.showError) window.showError('Critical Alert', 'Catheter bag is nearly full — empty immediately.');
+        } else if (s.cls !== 'crit') {
+            this._critShown = false;
         }
     },
 
-    /**
-     * Update capacity progress bar
-     * @param {Object} data - Monitoring data
-     */
-    updateCapacity(data) {
-        const currentVolume = data.catheter_bag_volume || 0;
-        const percent = Math.min((currentVolume / CONFIG.BAG.MAX_CAPACITY) * 100, 100);
+    _updateGrid(data) {
+        const vol  = data.catheter_bag_volume ?? 0;
+        const flow = data.urine_flow_rate ?? 0;
+        const uout = data.urine_output ?? 0;
+        const pct  = Math.min((vol / 800) * 100, 100);
+        const s    = this._getStatusConfig(pct, flow, uout);
 
-        // Update progress bar width
-        this.elements.capacityProgress.style.width = `${percent}%`;
-        this.elements.capacityBadge.textContent = `${Math.round(percent)}%`;
+        this._setVal(this.elements.urineOut,  this.previousValues.urineOut,  Math.round(uout));
+        this._setVal(this.elements.flowRate,   this.previousValues.flowRate,  flow.toFixed(2));
 
-        // Update colors based on percentage
-        this.updateCapacityColors(percent);
+        this.elements.catheterStatus.textContent    = s.catheter;
+        this.elements.catheterStatusSub.textContent = s.catheterSub;
+        this.elements.signalQuality.textContent     = '99%';
+        this.elements.signalQualitySub.textContent  = 'All sensors active';
+
+        this.previousValues = { urineOut: Math.round(uout), flowRate: flow.toFixed(2) };
     },
 
-    /**
-     * Update capacity bar colors based on percentage
-     * @param {number} percent - Current capacity percentage
-     */
-    updateCapacityColors(percent) {
-        const progressBar = this.elements.capacityProgress;
-
-        if (percent >= CONFIG.BAG.CRITICAL_PERCENT) {
-            progressBar.style.background = 'linear-gradient(90deg, #7f1d1d 0%, #dc2626 50%, #7f1d1d 100%)';
-        } else if (percent >= CONFIG.BAG.WARNING_PERCENT) {
-            progressBar.style.background = 'linear-gradient(90deg, #78350f 0%, #f59e0b 50%, #78350f 100%)';
-        } else {
-            progressBar.style.background = 'linear-gradient(90deg, #333333 0%, #4a4a4a 50%, #333333 100%)';
-        }
-        progressBar.style.backgroundSize = '200% 100%';
-    },
-
-    /**
-     * Update status card based on current conditions
-     * @param {Object} data - Monitoring data
-     */
-    updateStatus(data) {
-        const volume = data.catheter_bag_volume || 0;
-        const flowRate = data.urine_flow_rate || 0;
-        const urineOutput = data.urine_output || 0;
-
-        let status;
-        if (volume >= CONFIG.BAG.CRITICAL_THRESHOLD) {
-            status = CONFIG.STATUS.CRITICAL;
-        } else if (volume >= CONFIG.BAG.WARNING_THRESHOLD) {
-            status = CONFIG.STATUS.WARNING;
-        } else if (flowRate === 0 && urineOutput === 0) {
-            status = CONFIG.STATUS.ATTENTION;
-        } else {
-            status = CONFIG.STATUS.NORMAL;
-        }
-
-        this.applyStatus(status);
-    },
-
-    /**
-     * Apply status styling to status card
-     * @param {string} status - Status type
-     */
-    applyStatus(status) {
-        const statusConfig = {
-            [CONFIG.STATUS.CRITICAL]: {
-                cardClass: 'glow-card info-card status-error',
-                icon: 'fa-exclamation-circle',
-                text: 'CRITICAL',
-                message: 'Bag is full! Empty immediately!',
-                messageIcon: 'fa-exclamation-triangle',
-                showToast: true,
-                toastTitle: 'Critical Alert!',
-                toastMessage: 'Catheter bag is full. Empty immediately.'
-            },
-            [CONFIG.STATUS.WARNING]: {
-                cardClass: 'glow-card info-card status-warning',
-                icon: 'fa-exclamation-triangle',
-                text: 'Warning',
-                message: 'Bag nearing capacity. Plan to empty soon.',
-                messageIcon: 'fa-clock',
-                showToast: false
-            },
-            [CONFIG.STATUS.ATTENTION]: {
-                cardClass: 'glow-card info-card',
-                icon: 'fa-pause-circle',
-                text: 'Attention',
-                message: 'No urine output detected. Check for blockages.',
-                messageIcon: 'fa-info-circle',
-                showToast: false
-            },
-            [CONFIG.STATUS.NORMAL]: {
-                cardClass: 'glow-card info-card status-normal',
-                icon: 'fa-check-circle',
-                text: 'Normal',
-                message: 'All parameters within normal range',
-                messageIcon: 'fa-shield-alt',
-                showToast: false
-            }
-        };
-
-        const config = statusConfig[status];
-
-        // Apply status card styling
-        this.elements.statusCard.className = config.cardClass;
-        this.elements.statusIcon.className = `fas ${config.icon}`;
-        this.elements.statusText.textContent = config.text;
-        this.elements.statusMessage.textContent = config.message;
-        this.elements.statusMessageIcon.className = `fas ${config.messageIcon}`;
-
-        // Show toast for critical status
-        if (config.showToast && window.showWarning) {
-            // Only show once per critical state
-            if (!this._criticalToastShown) {
-                window.showError(config.toastTitle, config.toastMessage);
-                this._criticalToastShown = true;
-            }
-        } else {
-            this._criticalToastShown = false;
+    _setVal(el, oldVal, newVal) {
+        el.textContent = newVal;
+        if (oldVal !== undefined && oldVal != newVal) {
+            el.style.transform  = 'scale(1.08)';
+            el.style.transition = 'transform 0.3s ease';
+            setTimeout(() => { el.style.transform = 'scale(1)'; }, 300);
         }
     },
 
-    /**
-     * Update last updated timestamp (kept for compatibility)
-     */
-    updateTimestamp() {
-        // Timestamp display removed from UI
+    _updateTimestamp() {
+        const t = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        this.elements.timestamp.textContent = t;
+        this.elements.footerTs.textContent  = t;
     },
 
-    /**
-     * Show error state using toast notification
-     * @param {string} message - Error message
-     */
-    showError(message) {
-        if (window.showError) {
-            window.showError('Unable to fetch data', message);
-        }
+    _tick() {
+        const t = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        if (this.elements.footerTs) this.elements.footerTs.textContent = t;
     },
 
-    /**
-     * Hide error state (no-op since we use toasts now)
-     */
-    hideError() {
-        // No-op - toasts auto-dismiss
-    },
-
-    /**
-     * Update connection status badge
-     * @param {string} status - Connection status: 'waiting', 'live', 'offline', 'no_device'
-     */
     setConnectionStatus(status) {
-        const badge = this.elements.connectionBadge;
+        const badge = this.elements.deviceBadge;
+        const dot   = this.elements.deviceDot;
+        const label = this.elements.deviceLabel;
+        if (!badge) return;
 
-        const statusConfig = {
-            waiting: {
-                class: 'status-indicator',
-                text: 'Waiting',
-                showPing: false
-            },
-            live: {
-                class: 'status-indicator live',
-                text: 'Live',
-                showPing: true
-            },
-            offline: {
-                class: 'status-indicator offline',
-                text: 'Offline',
-                showPing: false
-            },
-            no_device: {
-                class: 'status-indicator warning',
-                text: 'No Device',
-                showPing: false
-            },
-            no_data: {
-                class: 'status-indicator warning',
-                text: 'No Data',
-                showPing: false
-            }
+        const map = {
+            live:    { badgeCls: 'device-badge',         dotCls: 'device-badge-dot',         text: 'ESP32 Online' },
+            offline: { badgeCls: 'device-badge offline', dotCls: 'device-badge-dot offline', text: 'ESP32 Offline' },
+            waiting: { badgeCls: 'device-badge waiting', dotCls: 'device-badge-dot waiting', text: 'Connecting…' },
+            no_data: { badgeCls: 'device-badge waiting', dotCls: 'device-badge-dot waiting', text: 'No Data' },
         };
 
-        const config = statusConfig[status] || statusConfig.waiting;
+        const cfg = map[status] || map.waiting;
+        badge.className = cfg.badgeCls;
+        dot.className   = cfg.dotCls;
+        label.textContent = cfg.text;
+    },
 
-        badge.className = config.class;
-        badge.innerHTML = `
-            <div class="status-dot-container">
-                <div class="status-dot ${config.showPing ? 'ping' : ''}"></div>
-                <div class="status-dot"></div>
-            </div>
-            <span>${config.text}</span>
-        `;
-    }
+    showError(message) {
+        if (window.showError) window.showError('Data Error', message);
+    },
+
+    hideError() {},
 };
