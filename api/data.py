@@ -3,7 +3,7 @@ import logging
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from api.db import check_auth, check_rate_limit, get_latest_data
+from db import check_auth, check_rate_limit, get_latest_data
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

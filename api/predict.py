@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 
-from api.db import (
+from db import (
     check_auth,
     check_rate_limit,
     get_model,
