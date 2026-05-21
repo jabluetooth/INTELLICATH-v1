@@ -1,6 +1,7 @@
 const App = {
     refreshInterval: null,
-    lastFetchSuccess: null,  // UX-2: timestamp of last good data fetch
+    lastFetchSuccess: null,
+    _errorState: false,       // true while in a persistent error — prevents toast spam
 
     // Defaults — overridden by _loadSettings on init (BUG-5)
     settings: {
@@ -28,12 +29,18 @@ const App = {
             const data = await API.fetchMonitoringData();
 
             if (data.status === 'no_data') {
-                UI.showError('No monitoring data available yet. Connect your ESP32 device to start monitoring.');
+                // Only show once — not on every poll tick
+                if (!this._errorState) {
+                    this._errorState = true;
+                    UI.showError('No monitoring data available yet. Connect your ESP32 device to start monitoring.');
+                }
                 UI.setConnectionStatus('no_data');
                 return;
             }
 
-            this.lastFetchSuccess = Date.now();  // UX-2
+            // Recovered — clear error state
+            this._errorState = false;
+            this.lastFetchSuccess = Date.now();
             UI.update(data);
             UI.setConnectionStatus('live');
 
@@ -44,7 +51,11 @@ const App = {
 
         } catch (error) {
             console.error('Error fetching data:', error);
-            UI.showError(error.message);
+            // Only toast on the first failure — stay silent while already in error state
+            if (!this._errorState) {
+                this._errorState = true;
+                UI.showError(error.message);
+            }
             UI.setConnectionStatus('offline');
         }
     },

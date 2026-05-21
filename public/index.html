@@ -273,13 +273,14 @@
         /* ─── MAIN ─────────────────────────────────── */
         .main {
             flex: 1;
+            min-width: 0;
             padding: 48px 52px;
-            max-width: 1100px;
             display: flex;
             flex-direction: column;
             gap: 0;
             margin-left: var(--sidebar-w);
             transition: margin-left 0.25s ease;
+            overflow-x: hidden;
         }
 
         body.sidebar-collapsed .main { margin-left: 0; }
@@ -375,7 +376,7 @@
         /* ─── PRIORITY READOUT ─────────────────────── */
         .readout {
             display: grid;
-            grid-template-columns: 1fr 340px;
+            grid-template-columns: 1fr minmax(280px, 340px);
             gap: 0;
             border: 1.5px solid var(--ink);
             margin-bottom: 48px;
