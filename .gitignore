@@ -35,6 +35,8 @@ wheels/
 # Firebase
 serviceAccountKey.json
 *-firebase-adminsdk-*.json
+*-eb1e209485ce.json
+intellicath-*.json
 
 # SSL Certificates & Keys
 *.pem

@@ -1,116 +1,215 @@
 import ssl
 import os
 import json
+import hashlib
 import logging
+import joblib
 import numpy as np
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import joblib
 from datetime import datetime
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# Load environment variables
 load_dotenv()
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__, template_folder='public', static_folder='public', static_url_path='')
+app = Flask(__name__, template_folder="public", static_folder="public", static_url_path="")
 CORS(app)
 
-# Initialize Firebase Admin SDK
+# ── Firebase ───────────────────────────────────────────────────────────────────
+
 def get_firestore_client():
-    """Initialize and return Firestore client."""
     if not firebase_admin._apps:
-        # Check for service account JSON in environment variable
-        firebase_creds = os.getenv("FIREBASE_SERVICE_ACCOUNT")
-        if firebase_creds:
-            cred_dict = json.loads(firebase_creds)
-            cred = credentials.Certificate(cred_dict)
+        creds_json = os.getenv("FIREBASE_SERVICE_ACCOUNT")
+        if creds_json:
+            cred = credentials.Certificate(json.loads(creds_json))
         else:
-            # Fallback to file-based credentials for local development
-            cred_path = "serviceAccountKey.json"
-            if os.path.exists(cred_path):
-                cred = credentials.Certificate(cred_path)
+            key_path = "serviceAccountKey.json"
+            if os.path.exists(key_path):
+                cred = credentials.Certificate(key_path)
             else:
-                raise ValueError("Firebase credentials not found. Set FIREBASE_SERVICE_ACCOUNT env var or provide serviceAccountKey.json")
-
+                raise ValueError(
+                    "Firebase credentials not found. "
+                    "Set FIREBASE_SERVICE_ACCOUNT env var or provide serviceAccountKey.json"
+                )
         firebase_admin.initialize_app(cred)
-
     return firestore.client()
+
+
+# ── ML model singleton ─────────────────────────────────────────────────────────
+
+_model = None
+_scaler = None
+
+def _verify_hash(path, env_var):
+    expected = os.getenv(env_var)
+    if not expected:
+        return
+    with open(path, "rb") as f:
+        actual = hashlib.sha256(f.read()).hexdigest()
+    if actual != expected:
+        raise ValueError(f"Integrity check failed for {os.path.basename(path)}")
+
+def get_model():
+    global _model, _scaler
+    if _model is None:
+        model_path  = "models/decision_tree.pkl"
+        scaler_path = "models/scaler.pkl"
+        _verify_hash(model_path,  "MODEL_HASH_TREE")
+        _verify_hash(scaler_path, "MODEL_HASH_SCALER")
+        _model  = joblib.load(model_path)
+        _scaler = joblib.load(scaler_path)
+    return _model, _scaler
+
+
+# ── Input validation ───────────────────────────────────────────────────────────
+
+def validate_sensor_data(data):
+    required = ["urine_output", "urine_flow_rate", "catheter_bag_volume", "remaining_volume"]
+    for field in required:
+        if data.get(field) is None:
+            return None, f"Missing required field: {field}"
+    try:
+        cleaned = {
+            "urine_output":        float(data["urine_output"]),
+            "urine_flow_rate":     float(data["urine_flow_rate"]),
+            "catheter_bag_volume": float(data["catheter_bag_volume"]),
+            "remaining_volume":    float(data["remaining_volume"]),
+        }
+    except (TypeError, ValueError) as exc:
+        return None, f"Invalid data type: {exc}"
+
+    bounds = [
+        ("catheter_bag_volume", 0, 800),
+        ("remaining_volume",    0, 800),
+        ("urine_flow_rate",     0, 100),
+        ("urine_output",        0, 5000),
+    ]
+    for field, lo, hi in bounds:
+        if not (lo <= cleaned[field] <= hi):
+            return None, f"{field} out of acceptable range ({lo}–{hi})"
+
+    return cleaned, None
+
+
+# ── API key auth ───────────────────────────────────────────────────────────────
+
+def _check_auth():
+    key = os.getenv("API_SECRET_KEY")
+    if not key:
+        return True  # auth disabled in dev when key not set
+    return request.headers.get("X-Api-Key") == key
+
+
+# ── Firestore helpers ──────────────────────────────────────────────────────────
+
+def save_data_to_firestore(data):
+    try:
+        db  = get_firestore_client()
+        col = db.collection("intellicath_data")
+
+        last_docs = (
+            col.order_by("timestamp", direction=firestore.Query.DESCENDING)
+               .limit(1)
+               .stream()
+        )
+        last = None
+        for doc in last_docs:
+            last = doc.to_dict()
+            break
+
+        if last:
+            no_change = (
+                abs(last.get("urine_output",        0) - data["urine_output"])        <= 2   and
+                abs(last.get("urine_flow_rate",     0) - data["urine_flow_rate"])     <= 0.1 and
+                abs(last.get("catheter_bag_volume", 0) - data["catheter_bag_volume"]) <= 2
+            )
+            if no_change:
+                logger.debug("No significant change — skipping insert.")
+                return True
+
+        data["timestamp"] = firestore.SERVER_TIMESTAMP
+        col.add(data)
+        logger.info("Record saved to Firestore.")
+        return True
+
+    except Exception as exc:
+        logger.error("Firestore save failed: %s", exc)
+        return False
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
+
 @app.route("/predict-post", methods=["POST"])
 @app.route("/api/predict", methods=["POST"])
 def predict():
-    """Receives data, processes it, and stores predictions in Firestore."""
-    data = request.get_json()
+    if not _check_auth():
+        return jsonify({"error": "Unauthorized"}), 401
 
-    if not data:
+    raw = request.get_json(silent=True)
+    if not raw:
         return jsonify({"error": "No data received"}), 400
+
+    cleaned, err = validate_sensor_data(raw)
+    if err:
+        return jsonify({"error": err}), 400
+
     try:
-        urine_output = data.get("urine_output")
-        urine_flow_rate = data.get("urine_flow_rate")
-        catheter_bag_volume = data.get("catheter_bag_volume")
-        remaining_volume = data.get("remaining_volume")
+        model, scaler = get_model()
+        features = [[cleaned["remaining_volume"], cleaned["urine_flow_rate"]]]
+        minutes  = model.predict(scaler.transform(features))[0]
+        hours    = int(minutes // 60)
+        mins     = int(minutes % 60)
+        predicted_time = f"{hours:02} hours and {mins:02} minutes"
+        logger.info("Predicted time: %s", predicted_time)
 
-        if urine_flow_rate is None or remaining_volume is None:
-            return jsonify({"error": "Missing input values"}), 400
+        actual_time = (
+            datetime.now().strftime("%H:%M")
+            if cleaned["catheter_bag_volume"] >= 800 else None
+        )
 
-        actual_time = datetime.now().strftime("%H:%M") if catheter_bag_volume >= 800 else None
-        features = np.array([[remaining_volume, urine_flow_rate]])
+        device_id = request.headers.get("X-Device-Id")
+        record = {**cleaned, "predicted_time": predicted_time, "actual_time": actual_time}
+        if device_id:
+            record["device_id"] = device_id
 
-        model = joblib.load("models/decision_tree.pkl")
-        scaler = joblib.load("models/scaler.pkl")
+        save_data_to_firestore(record)
 
-        scaled_features = scaler.transform(features)
-        predicted_time_minutes = model.predict(scaled_features)[0]
-        hours = int(predicted_time_minutes // 60)
-        minutes = int(predicted_time_minutes % 60)
-        predicted_time = f"{hours:02} hours and {minutes:02} minutes"
-        logger.info(f"Predicted Time: {predicted_time}")
+        return jsonify({"status": "success", "predicted_time": predicted_time, "actual_time": actual_time})
 
-        save_data_to_firestore({
-            "urine_output": urine_output,
-            "urine_flow_rate": urine_flow_rate,
-            "catheter_bag_volume": catheter_bag_volume,
-            "remaining_volume": remaining_volume,
-            "predicted_time": predicted_time,
-            "actual_time": actual_time
-        })
+    except Exception as exc:
+        logger.error("Prediction error: %s", exc, exc_info=True)
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
-        return jsonify({
-            "status": "success",
-            "predicted_time": predicted_time,
-            "actual_time": actual_time
-        })
-
-    except Exception as e:
-        logger.error(f"Prediction Error: {e}")
-        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/data", methods=["GET"])
 def get_data():
-    """Fetch the latest data from Firestore."""
+    if not _check_auth():
+        return jsonify({"error": "Unauthorized"}), 401
+
     try:
-        db = get_firestore_client()
-        collection = db.collection("intellicath_data")
+        db        = get_firestore_client()
+        col       = db.collection("intellicath_data")
+        device_id = request.args.get("device")
 
-        # Get the most recent document
-        docs = collection.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(1).stream()
+        query = col.order_by("timestamp", direction=firestore.Query.DESCENDING)
+        if device_id:
+            query = query.where("device_id", "==", device_id)
 
-        for doc in docs:
+        for doc in query.limit(1).stream():
             data = doc.to_dict()
-            # Convert timestamp to string if present
             if data.get("timestamp"):
                 data["timestamp"] = str(data["timestamp"])
             data["id"] = doc.id
@@ -118,64 +217,25 @@ def get_data():
 
         return jsonify({"status": "no_data", "message": "No data available"})
 
-    except Exception as e:
-        logger.error(f"Data Fetch Error: {e}")
-        return jsonify({"status": "error", "error": str(e)}), 500
+    except Exception as exc:
+        logger.error("Data fetch error: %s", exc, exc_info=True)
+        return jsonify({"error": "An internal error occurred. Please try again."}), 500
 
 
-def save_data_to_firestore(data):
-    """Saves the latest data to Firestore if there is a significant change."""
-    try:
-        db = get_firestore_client()
-        collection = db.collection("intellicath_data")
-
-        # Get the last entry
-        last_docs = collection.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(1).stream()
-        last_entry = None
-        for doc in last_docs:
-            last_entry = doc.to_dict()
-            break
-
-        if last_entry:
-            # Check if there's a significant change
-            if abs(last_entry.get("urine_output", 0) - data["urine_output"]) <= 2 and \
-               abs(last_entry.get("urine_flow_rate", 0) - data["urine_flow_rate"]) <= 0.1 and \
-               abs(last_entry.get("catheter_bag_volume", 0) - data["catheter_bag_volume"]) <= 2:
-                logger.debug("No significant change in data. Skipping insert.")
-                return True
-
-        # Add timestamp
-        data["timestamp"] = firestore.SERVER_TIMESTAMP
-
-        # Add new document
-        collection.add(data)
-        logger.info("Data inserted into Firestore successfully.")
-        return True
-
-    except Exception as e:
-        logger.error(f"Firestore Insert Failed: {e}")
-        return False
+# ── Server startup ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # SSL configuration from environment
     ssl_cert = os.getenv("SSL_CERT_PATH", "localhost.pem")
-    ssl_key = os.getenv("SSL_KEY_PATH", "localhost-key.pem")
+    ssl_key  = os.getenv("SSL_KEY_PATH",  "localhost-key.pem")
+    debug    = os.getenv("FLASK_DEBUG", "False") == "True"
+    host     = os.getenv("FLASK_HOST", "0.0.0.0")
+    port     = int(os.getenv("FLASK_PORT", 5001))
 
-    # Check if SSL certificates exist
     if os.path.exists(ssl_cert) and os.path.exists(ssl_key):
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         context.load_cert_chain(certfile=ssl_cert, keyfile=ssl_key)
-        logger.info(f"Starting Flask app with SSL on port {os.getenv('FLASK_PORT', 5001)}")
-        app.run(
-            debug=os.getenv("FLASK_DEBUG", "True") == "True",
-            host=os.getenv("FLASK_HOST", "0.0.0.0"),
-            port=int(os.getenv("FLASK_PORT", 5001)),
-            ssl_context=context
-        )
+        logger.info("Starting with SSL on port %d", port)
+        app.run(debug=debug, host=host, port=port, ssl_context=context)
     else:
-        logger.warning(f"SSL certificates not found. Starting without SSL.")
-        app.run(
-            debug=os.getenv("FLASK_DEBUG", "True") == "True",
-            host=os.getenv("FLASK_HOST", "0.0.0.0"),
-            port=int(os.getenv("FLASK_PORT", 5001))
-        )
+        logger.warning("SSL certificates not found — starting without SSL.")
+        app.run(debug=debug, host=host, port=port)

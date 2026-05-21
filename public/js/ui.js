@@ -4,46 +4,54 @@ const UI = {
 
     init() {
         this.elements = {
-            timeValue:        document.getElementById('timeValue'),
-            timeUnit:         document.getElementById('timeUnit'),
-            pctText:          document.getElementById('pctText'),
-            barFill:          document.getElementById('barFill'),
-            statusMsg:        document.getElementById('statusMsg'),
-            volVal:           document.getElementById('volVal'),
-            remVal:           document.getElementById('remVal'),
-            statusVal:        document.getElementById('statusVal'),
-            statusSub:        document.getElementById('statusSub'),
-            urineOut:         document.getElementById('urineOut'),
-            flowRate:         document.getElementById('flowRate'),
-            catheterStatus:   document.getElementById('catheterStatus'),
-            catheterStatusSub:document.getElementById('catheterStatusSub'),
-            signalQuality:    document.getElementById('signalQuality'),
-            signalQualitySub: document.getElementById('signalQualitySub'),
-            timestamp:        document.getElementById('timestamp'),
-            footerTs:         document.getElementById('footerTs'),
-            deviceBadge:      document.getElementById('deviceBadge'),
-            deviceDot:        document.getElementById('deviceDot'),
-            deviceLabel:      document.getElementById('deviceLabel'),
+            timeValue:         document.getElementById('timeValue'),
+            timeUnit:          document.getElementById('timeUnit'),
+            pctText:           document.getElementById('pctText'),
+            barFill:           document.getElementById('barFill'),
+            statusMsg:         document.getElementById('statusMsg'),
+            volVal:            document.getElementById('volVal'),
+            remVal:            document.getElementById('remVal'),
+            statusVal:         document.getElementById('statusVal'),
+            statusSub:         document.getElementById('statusSub'),
+            urineOut:          document.getElementById('urineOut'),
+            flowRate:          document.getElementById('flowRate'),
+            catheterStatus:    document.getElementById('catheterStatus'),
+            catheterStatusSub: document.getElementById('catheterStatusSub'),
+            signalQuality:     document.getElementById('signalQuality'),
+            signalQualitySub:  document.getElementById('signalQualitySub'),
+            timestamp:         document.getElementById('timestamp'),
+            footerTs:          document.getElementById('footerTs'),
+            deviceBadge:       document.getElementById('deviceBadge'),
+            deviceDot:         document.getElementById('deviceDot'),
+            deviceLabel:       document.getElementById('deviceLabel'),
         };
 
-        // Clock tick every second
         setInterval(() => this._tick(), 1000);
     },
 
     update(data) {
+        this._clearLoading();
         this._updateReadout(data);
         this._updateGrid(data);
         this._updateTimestamp();
     },
 
-    _getStatusConfig(pct, flowRate, urineOutput) {
-        if (pct >= 87.5) return {
+    // ── Status config (BUG-1: uses configurable warnThreshold) ──────────────
+
+    _getStatusConfig(pct, flowRate, urineOutput, warnThresholdMl) {
+        const maxMl    = CONFIG.BAG.MAX_CAPACITY;
+        const warnPct  = warnThresholdMl != null
+            ? (warnThresholdMl / maxMl) * 100
+            : CONFIG.BAG.WARNING_PERCENT;
+        const critPct  = CONFIG.BAG.CRITICAL_PERCENT;
+
+        if (pct >= critPct) return {
             cls: 'crit', bar: 'crit',
             status: 'Critical', color: 'var(--crit)', sub: 'Empty immediately',
             msg: 'URGENT — Bag approaching maximum capacity. Empty immediately.',
             catheter: 'CHECK', catheterSub: 'Bag near full',
         };
-        if (pct >= 75) return {
+        if (pct >= warnPct) return {
             cls: 'warn', bar: 'warn',
             status: 'Caution', color: 'var(--warn)', sub: 'Plan to empty soon',
             msg: 'Bag nearing capacity. Plan to empty within the next 4 hours.',
@@ -68,42 +76,36 @@ const UI = {
         const m = str.match(/(\d+)\s+hours?\s+and\s+(\d+)\s+minutes?/i);
         if (!m) return { big: str, unit: 'estimated' };
         const h = parseInt(m[1]), min = parseInt(m[2]);
-        const unit = min > 0 ? `${h}h ${min}m until full` : `${h}h until full`;
-        return { big: h.toString(), unit };
+        return { big: h.toString(), unit: min > 0 ? `${h}h ${min}m until full` : `${h}h until full` };
     },
 
     _updateReadout(data) {
         const vol  = data.catheter_bag_volume ?? 0;
-        const rem  = data.remaining_volume ?? 0;
-        const flow = data.urine_flow_rate ?? 0;
-        const uout = data.urine_output ?? 0;
-        const pct  = Math.min((vol / 800) * 100, 100);
-        const s    = this._getStatusConfig(pct, flow, uout);
+        const rem  = data.remaining_volume    ?? 0;
+        const flow = data.urine_flow_rate     ?? 0;
+        const uout = data.urine_output        ?? 0;
+        const pct  = Math.min((vol / CONFIG.BAG.MAX_CAPACITY) * 100, 100);
+        const s    = this._getStatusConfig(pct, flow, uout, App.settings.warnThreshold);
         const pt   = this._parsePredictedTime(data.predicted_time);
 
-        // Big time display
         this.elements.timeValue.textContent = pt.big;
         this.elements.timeValue.className   = 'readout-number ' + s.cls;
         this.elements.timeUnit.textContent  = pt.unit;
 
-        // Capacity bar
-        this.elements.barFill.style.width  = Math.round(pct) + '%';
-        this.elements.barFill.className    = 'bar-fill ' + s.bar;
-        this.elements.pctText.textContent  = Math.round(pct) + '%';
+        this.elements.barFill.style.width = Math.round(pct) + '%';
+        this.elements.barFill.className   = 'bar-fill ' + s.bar;
+        this.elements.pctText.textContent = Math.round(pct) + '%';
 
-        // Status message
         this.elements.statusMsg.textContent = s.msg;
 
-        // Right panel stats
         this.elements.volVal.textContent = Math.round(vol);
         this.elements.remVal.textContent = Math.round(rem);
 
         const sv = this.elements.statusVal;
-        sv.textContent   = s.status;
-        sv.style.color   = s.color;
+        sv.textContent        = s.status;
+        sv.style.color        = s.color;
         this.elements.statusSub.textContent = s.sub;
 
-        // Show toast for critical (debounced via flag)
         if (s.cls === 'crit' && !this._critShown) {
             this._critShown = true;
             if (window.showError) window.showError('Critical Alert', 'Catheter bag is nearly full — empty immediately.');
@@ -114,18 +116,21 @@ const UI = {
 
     _updateGrid(data) {
         const vol  = data.catheter_bag_volume ?? 0;
-        const flow = data.urine_flow_rate ?? 0;
-        const uout = data.urine_output ?? 0;
-        const pct  = Math.min((vol / 800) * 100, 100);
-        const s    = this._getStatusConfig(pct, flow, uout);
+        const flow = data.urine_flow_rate     ?? 0;
+        const uout = data.urine_output        ?? 0;
+        const pct  = Math.min((vol / CONFIG.BAG.MAX_CAPACITY) * 100, 100);
+        const s    = this._getStatusConfig(pct, flow, uout, App.settings.warnThreshold);
 
         this._setVal(this.elements.urineOut,  this.previousValues.urineOut,  Math.round(uout));
         this._setVal(this.elements.flowRate,   this.previousValues.flowRate,  flow.toFixed(2));
 
         this.elements.catheterStatus.textContent    = s.catheter;
         this.elements.catheterStatusSub.textContent = s.catheterSub;
-        this.elements.signalQuality.textContent     = '99%';
-        this.elements.signalQualitySub.textContent  = 'All sensors active';
+
+        // BUG-4: derive signal quality from connection state instead of hardcoding 99%
+        const online = App.lastFetchSuccess !== null;
+        this.elements.signalQuality.textContent    = online ? 'ONLINE'  : 'OFFLINE';
+        this.elements.signalQualitySub.textContent = online ? 'All sensors active' : 'Check device';
 
         this.previousValues = { urineOut: Math.round(uout), flowRate: flow.toFixed(2) };
     },
@@ -142,12 +147,34 @@ const UI = {
     _updateTimestamp() {
         const t = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         this.elements.timestamp.textContent = t;
+        this.elements.timestamp.classList.remove('stale');
         this.elements.footerTs.textContent  = t;
     },
 
+    // UX-1: loading pulse while waiting for first data
+    setLoading(on) {
+        document.querySelectorAll('.sc-value, .rstat-val, .readout-number')
+            .forEach(el => el.classList.toggle('loading', on));
+    },
+
+    _clearLoading() {
+        this.setLoading(false);
+    },
+
+    // UX-2: tick also checks data staleness
     _tick() {
         const t = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         if (this.elements.footerTs) this.elements.footerTs.textContent = t;
+
+        const ts = this.elements.timestamp;
+        if (!ts || App.lastFetchSuccess === null) return;
+
+        const ageMs = Date.now() - App.lastFetchSuccess;
+        if (ageMs > 30000) {
+            const mins = Math.floor(ageMs / 60000);
+            ts.textContent = mins > 0 ? `Last data ${mins}m ago` : 'Data stale';
+            ts.classList.add('stale');
+        }
     },
 
     setConnectionStatus(status) {
@@ -164,8 +191,8 @@ const UI = {
         };
 
         const cfg = map[status] || map.waiting;
-        badge.className = cfg.badgeCls;
-        dot.className   = cfg.dotCls;
+        badge.className   = cfg.badgeCls;
+        dot.className     = cfg.dotCls;
         label.textContent = cfg.text;
     },
 

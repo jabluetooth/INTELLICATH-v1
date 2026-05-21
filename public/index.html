@@ -538,6 +538,12 @@
             letter-spacing: 0.04em;
         }
 
+        /* ─── STALE DATA / LOADING ────────────────── */
+        .ts-value.stale { color: var(--warn); font-weight: 600; }
+
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+        .loading { animation: pulse 1.2s ease-in-out infinite; }
+
         /* ─── TOAST ────────────────────────────────── */
         .toast-container {
             position: fixed;
@@ -630,7 +636,9 @@
     <div id="toastContainer" class="toast-container"></div>
 
     <!-- Toggle button lives outside sidebar so it's always reachable -->
-    <button class="sidebar-toggle" id="sidebarToggle" onclick="App.toggleSidebar()" title="Toggle sidebar">&#8612;</button>
+    <!-- UX-4: aria-expanded tracks sidebar open/closed state for screen readers -->
+    <button class="sidebar-toggle" id="sidebarToggle" onclick="App.toggleSidebar()"
+            title="Close sidebar" aria-expanded="true" aria-controls="sidebar">&#8612;</button>
 
     <!-- SIDEBAR -->
     <aside class="sidebar" id="sidebar">
@@ -640,6 +648,8 @@
             </div>
 
             <!-- System Info -->
+            <!-- UX-5 PLACEHOLDER: patient data below is static. Wire to authenticated
+                 patient context before clinical deployment. -->
             <div class="sidebar-section">
                 <div class="sidebar-meta-label">System Info</div>
                 <div class="sidebar-meta-item">
@@ -648,11 +658,11 @@
                 </div>
                 <div class="sidebar-meta-item">
                     <div class="meta-key">Ward</div>
-                    <div class="meta-val">ICU — Bed 3</div>
+                    <div class="meta-val" id="sidebarWard">—</div>
                 </div>
                 <div class="sidebar-meta-item">
                     <div class="meta-key">Attending</div>
-                    <div class="meta-val">Dr. Santos</div>
+                    <div class="meta-val" id="sidebarAttending">—</div>
                 </div>
                 <div class="live-pill" id="livePill">
                     <span class="live-dot"></span>
@@ -709,23 +719,18 @@
 
             <div class="sidebar-divider"></div>
 
-            <!-- ESP32 Config -->
+            <!-- BUG-3: ESP32 config is flashed directly onto the device.
+                 Browser-based config inputs were non-functional and have been removed. -->
             <div class="sidebar-section">
                 <div class="sidebar-meta-label">ESP32 Configuration</div>
             </div>
             <div class="settings-group">
-                <div class="setting-item-col">
-                    <div class="setting-label">WiFi SSID</div>
-                    <input class="esp-input" type="text" placeholder="Your WiFi network" id="espSsid">
-                </div>
-                <div class="setting-item-col">
-                    <div class="setting-label">WiFi Password</div>
-                    <input class="esp-input" type="password" placeholder="••••••••" id="espPass">
-                </div>
-                <div class="setting-item-col">
-                    <div class="setting-label">Server URL</div>
-                    <input class="esp-input" type="text" id="espUrl"
-                           placeholder="https://your-project.vercel.app">
+                <div class="setting-item-col" style="padding: 12px 0;">
+                    <div class="setting-label" style="line-height:1.7;">
+                        Configure WiFi credentials and server URL in
+                        <code style="font-family:var(--mono);font-size:10px;opacity:0.75;">models/ARDUINOCODE/config.h</code>
+                        before flashing the device.
+                    </div>
                 </div>
             </div>
 
@@ -799,7 +804,7 @@
             <div class="stat-cell">
                 <div class="sc-label">Urine Output</div>
                 <div class="sc-value" id="urineOut">—</div>
-                <div class="sc-unit">cc / hour</div>
+                <div class="sc-unit">cc total</div>
             </div>
             <div class="stat-cell">
                 <div class="sc-label">Flow Rate</div>
@@ -827,6 +832,8 @@
     </main>
 
     <!-- JavaScript Modules -->
+    <!-- Replace the empty string below with your API_SECRET_KEY value -->
+    <script>window.__API_KEY__ = 'a125a7d1ef43ac94a06e47aa5b441987c8b7ff3be84abdf9c96fa3f128c6dd2e';</script>
     <script src="js/config.js"></script>
     <script src="js/api.js"></script>
     <script src="js/notifications.js"></script>
@@ -834,20 +841,42 @@
     <script src="js/app.js"></script>
 
     <script>
+        // SEC-10: uses DOM API (textContent) instead of innerHTML to prevent XSS.
+        // UX-3: close button has aria-label for screen-reader accessibility.
         function showToast(type, title, message, duration = 5000) {
-            const container = document.getElementById('toastContainer');
             const icons = { success: '✓', error: '✕', warning: '⚠', info: 'i' };
+
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
-            toast.innerHTML = `
-                <div class="toast-icon">${icons[type] || 'i'}</div>
-                <div class="toast-content">
-                    <div class="toast-title">${title}</div>
-                    <div class="toast-message">${message}</div>
-                </div>
-                <button class="toast-close" onclick="dismissToast(this.parentElement)">✕</button>
-            `;
-            container.appendChild(toast);
+
+            const iconEl = document.createElement('div');
+            iconEl.className = 'toast-icon';
+            iconEl.textContent = icons[type] || 'i';
+
+            const contentEl = document.createElement('div');
+            contentEl.className = 'toast-content';
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'toast-title';
+            titleEl.textContent = title;  // safe — no HTML injection
+
+            const msgEl = document.createElement('div');
+            msgEl.className = 'toast-message';
+            msgEl.textContent = message;  // safe — no HTML injection
+
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'toast-close';
+            closeBtn.setAttribute('aria-label', 'Dismiss notification');
+            closeBtn.textContent = '✕';
+            closeBtn.onclick = () => dismissToast(toast);
+
+            contentEl.appendChild(titleEl);
+            contentEl.appendChild(msgEl);
+            toast.appendChild(iconEl);
+            toast.appendChild(contentEl);
+            toast.appendChild(closeBtn);
+
+            document.getElementById('toastContainer').appendChild(toast);
             requestAnimationFrame(() => toast.classList.add('show'));
             if (duration > 0) setTimeout(() => dismissToast(toast), duration);
             return toast;

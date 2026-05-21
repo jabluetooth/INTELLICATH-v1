@@ -1,14 +1,23 @@
-// WiFi Configuration
-// Replace these values with your actual WiFi credentials
-const char* ssid = "YOUR_WIFI_SSID";
+// ── WiFi ──────────────────────────────────────────────────────────────────────
+const char* ssid     = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 
-// Server Configuration
-// For Vercel deployment: "https://your-project-name.vercel.app/api/predict"
-// For local development: "https://192.168.1.100:5001/predict-post"
+// ── Server ────────────────────────────────────────────────────────────────────
+// Vercel production:  "https://your-project-name.vercel.app/api/predict"
+// Local development:  "https://192.168.1.100:5001/predict-post"
+// HTTPS is required — the firmware validates the server certificate (SEC-9).
 const char* serverURL = "https://YOUR_VERCEL_URL/api/predict";
 
-// Hardware Calibration (optional - adjust if needed)
-// Uncomment and modify if you need different calibration values
+// ── API Authentication (SEC-1) ────────────────────────────────────────────────
+// Must match API_SECRET_KEY set in your Vercel environment variables.
+// Leave empty string only for local dev when API_SECRET_KEY is not configured.
+const char* apiKey = "YOUR_API_SECRET_KEY";
+
+// ── Device Identity (SEC-8) ───────────────────────────────────────────────────
+// Unique identifier for this ESP32 unit. Stored with each Firestore record.
+// Use a short, descriptive string: "ESP32_UNIT_01", "ICU_BED_3", etc.
+const char* deviceId = "ESP32_UNIT_01";
+
+// ── Hardware Calibration (adjust for your load cell) ─────────────────────────
 // float calibration_factor = 458;
 // float offset = 411;
