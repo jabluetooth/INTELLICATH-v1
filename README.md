@@ -1,7 +1,9 @@
 # INTELLICATH
-## OVERVIEW
+
 INTELLICATH is an intelligent catheter bag monitoring system designed to prevent **Catheter-Associated Urinary Tract Infections (CAUTI)** by using **real-time data collection, predictive analytics, and machine learning**.
 This project integrates **sensor-based monitoring, data analysis, and web-based visualization** to help healthcare professionals manage catheter usage efficiently.
+
+**Live dashboard:** [intellicath-v1.vercel.app](https://intellicath-v1.vercel.app)
 
 ---
 
@@ -109,8 +111,8 @@ const char* serverURL = "https://your-project.vercel.app/api/predict";
 
 ```bash
 # Clone repository
-git clone <repository-url>
-cd INTELLICATH
+git clone https://github.com/jabluetooth/intellicath.git
+cd intellicath
 
 # Create virtual environment
 python -m venv venv
@@ -254,17 +256,5 @@ const char* serverURL = "https://your-project.vercel.app/api/predict";
 
 ---
 
-## CONTRIBUTING
-Contributions are welcome! Please ensure:
-- Code follows PEP 8 style guidelines
-- Environment variables are used for configuration
-- No sensitive data is committed
-
----
-
 ## LICENSE
-[Add your license information here]
-
----
-
-*Last updated: April 25, 2026*
+MIT - see [LICENSE](LICENSE)
