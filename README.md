@@ -3,7 +3,20 @@
 INTELLICATH is an intelligent catheter bag monitoring system designed to prevent **Catheter-Associated Urinary Tract Infections (CAUTI)** by using **real-time data collection, predictive analytics, and machine learning**.
 This project integrates **sensor-based monitoring, data analysis, and web-based visualization** to help healthcare professionals manage catheter usage efficiently.
 
-**Live dashboard:** [intellicath-v1.vercel.app](https://intellicath-v1.vercel.app)
+[![Live](https://img.shields.io/badge/Live_Demo-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://intellicath-v1.vercel.app)
+
+![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)
+
+<br>
+
+<!-- HERO: a photo of the physical ESP32 + load-cell hardware setup, paired with a
+     screenshot of the web dashboard showing live sensor data and a predicted-time-
+     to-full readout. This is the one project in the portfolio with a real physical
+     component, so a photo of the actual build is worth more here than any GIF of the
+     dashboard alone. Save as docs/hardware.jpg and docs/dashboard.png, add here as: -->
+<!-- <p align="center"><img src="docs/hardware.jpg" alt="INTELLICATH hardware" width="45%"> <img src="docs/dashboard.png" alt="INTELLICATH dashboard" width="45%"></p> -->
 
 ---
 
@@ -255,6 +268,17 @@ const char* serverURL = "https://your-project.vercel.app/api/predict";
 - Verify requirements.txt includes all dependencies
 
 ---
+
+## About the developer
+
+**Fil Heinz O. Re La Torre** - Automation & AI Solutions Engineer, building integrations and AI-backed workflows that go from idea to production in days.
+
+[![Portfolio](https://img.shields.io/badge/Portfolio-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://www.filheinzrelatorre.com)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://ph.linkedin.com/in/filheinzrelatorre)
+[![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/jabluetooth)
+[![Gmail](https://img.shields.io/badge/Gmail-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:filheinz27@gmail.com)
+
+**Other projects:** [Match](https://github.com/jabluetooth/match) · [ZeroPress](https://github.com/jabluetooth/zeropress) · [Mimo](https://github.com/jabluetooth/mimo) · [Insight](https://github.com/jabluetooth/insight) · [see all →](https://github.com/jabluetooth)
 
 ## LICENSE
 MIT - see [LICENSE](LICENSE)
