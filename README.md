@@ -3,7 +3,7 @@
 INTELLICATH is an intelligent catheter bag monitoring system designed to prevent **Catheter-Associated Urinary Tract Infections (CAUTI)** by using **real-time data collection, predictive analytics, and machine learning**.
 This project integrates **sensor-based monitoring, data analysis, and web-based visualization** to help healthcare professionals manage catheter usage efficiently.
 
-[![Live](https://img.shields.io/badge/Live_Demo-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://intellicath-v1.vercel.app)
+[![Live](https://img.shields.io/badge/Live_Demo-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://intellicathby.filheinzrelatorre.com)
 
 ![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
